@@ -1,0 +1,246 @@
+# Instalacion de librerias
+%pip install tensorflow
+%pip install keras-tcn		
+						
+# Importacion de librerias
+import tensorflow as tf							# tensorflow
+import tensorflow.keras as keras				# Keras
+from tensorflow.keras import backend as K
+
+from tensorflow.keras.models import Sequential	# A
+from tensorflow.keras.layers import Dense, Dropout, Flatten, Conv1D, Conv2D, MaxPool1D, MaxPool2D, LSTM, Input, GRU
+
+from sklearn.metrics import mean_absolute_error
+
+from collections import defaultdict
+
+import datetime
+import random
+import math
+import numpy as np
+import pandas as pd
+
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+
+
+np.random.seed(1)			# para darle replicabilidad al programa
+tf.random.set_seed(1)
+random.seed(1)
+
+# importacion de data de csv, datos equitativo de periodo no covulsivo y convulsivo
+df3 = pd.read_csv('chb01_3c.csv')
+df4 = pd.read_csv('chb01_4c.csv')
+df15 = pd.read_csv('chb01_15c.csv')
+df16 = pd.read_csv('chb01_16c.csv')
+df18 = pd.read_csv('chb01_18c.csv')
+df21 = pd.read_csv('chb01_21c.csv')
+df26 = pd.read_csv('chb01_26c.csv')
+
+df3.shape					# verificamos dimensiones de datos de entrada 
+
+df3.tail()					# visualizamos el data frame en la tabla
+
+df3.columns					# visualizacion de las columnas (con la incorrecta)
+
+df3 = df3.drop(labels='Unnamed: 0',axis=1)		
+df4 = df4.drop(labels='Unnamed: 0',axis=1)		
+df15 = df15.drop(labels='Unnamed: 0',axis=1)
+df16 = df16.drop(labels='Unnamed: 0',axis=1)
+df18 = df18.drop(labels='Unnamed: 0',axis=1)
+df21 = df21.drop(labels='Unnamed: 0',axis=1)
+df26 = df26.drop(labels='Unnamed: 0',axis=1)
+
+df3.columns					# visualizacion de la columnas
+
+plt.plot(df3)				# visualizacion grafica de la base de datos
+
+from sklearn.preprocessing import MinMaxScaler		# librerias de preprocesado 
+
+scaler = MinMaxScaler(feature_range=(0,1))			# escado de amplitud de la señal
+df3 = scaler.fit_transform(df3)
+df4 = scaler.fit_transform(df4)
+df15 = scaler.fit_transform(df15)
+df16 = scaler.fit_transform(df16)
+df18 = scaler.fit_transform(df18)
+df21 = scaler.fit_transform(df21)
+df26 = scaler.fit_transform(df26)
+
+plt.plot(df3)							# visualizacion de datos
+
+
+# vemos las dimensiones de los datos de entrada
+print((df3.shape),(df4.shape),(df15.shape),(df16.shape),(df18.shape),(df21.shape),(df26.shape))
+
+# determinamos los datos de ventana y prediccion a futuro, es decir 5 segundos
+señal_5s = 1279
+señal_1s = 255
+
+# de dataframe a numpy para poder ventanear la señal
+df3 = pd.DataFrame(df3).to_numpy()
+df4 = pd.DataFrame(df4).to_numpy()
+df15 = pd.DataFrame(df15).to_numpy()
+df16 = pd.DataFrame(df16).to_numpy()
+df18 = pd.DataFrame(df18).to_numpy()
+df21 = pd.DataFrame(df21).to_numpy()
+df26 = pd.DataFrame(df26).to_numpy()
+
+# funcion de ventaneo
+def vectorized_stride(array, clearing_time_index, max_time, sub_window_size,
+                         stride_size):
+    start = clearing_time_index + 1 - sub_window_size + 1
+    
+    sub_windows = (
+        start + 
+        np.expand_dims(np.arange(sub_window_size), 0) +
+        # Create a rightmost vector as [0, V, 2V, ...].
+        np.expand_dims(np.arange(max_time + 1, step=stride_size), 0).T
+    )
+    
+    return array[sub_windows]
+
+# cuenta accesoria para poder ventanear la señal
+r3 = len(df3)-(len(df3)%1279)-1
+r4 = len(df4)-(len(df4)%1279)-1
+r15 = len(df15)-(len(df15)%1279)-1
+r16 = len(df16)-(len(df16)%1279)-1
+r18 = len(df18)-(len(df18)%1279)-1
+r21 = len(df21)-(len(df21)%1279)-1
+r26 = len(df26)-(len(df26)%1279)-1
+
+# operacion de ventaneo
+df3_w = vectorized_stride(df3,1279,r3,1279,1279)
+df4_w = vectorized_stride(df4,1279,r4,1279,1279)
+df15_w = vectorized_stride(df15,1279,r15,1279,1279)
+df16_w = vectorized_stride(df16,1279,r16,1279,1279)
+df18_w = vectorized_stride(df18,1279,r18,1279,1279)
+df21_w = vectorized_stride(df21,1279,r21,1279,1279)
+df26_w = vectorized_stride(df26,1279,r26,1279,1279)
+
+# dimensiones de 
+print(df3_w.shape,df4_w.shape, df16_w.shape, df15_w.shape, df18_w.shape, df21_w.shape, df26_w.shape)
+
+# convierto mis ventanas a matrices arrays
+df3 = np.array(df3_w)
+df4 = np.array(df4_w)
+df15 = np.array(df15_w)
+df16 = np.array(df16_w)
+df18 = np.array(df18_w)
+df21 = np.array(df21_w)
+df26 = np.array(df26_w)
+
+# estaqueo las ventanas en una matriz tridimensional
+Train = np.vstack((df3 ,df4,df15 ,df16 ,df18 ,df21 ))
+Test = (df26)						# defino los datos de test (probar con Cross Validation)
+
+
+Train.shape							# dimensiones de datos de entrenamiento
+
+Test.shape							# dimensiones de datos de test
+
+# definimos las etiquetas  con vectores unidimensionales de 0 para nsz y 1 para sz
+L3nsz = np.zeros((8,1))
+L3sz = np.ones((8,1))
+L3 = np.append(L3nsz,L3sz)
+L4nsz = np.zeros((5,1))
+L4sz = np.ones((5,1))
+L4 = np.append(L4nsz,L4sz)
+L15nsz = np.zeros((8,1))
+L15sz = np.ones((8,1))
+L15 = np.append(L15nsz,L15sz)
+L16nsz = np.zeros((10,1))
+L16sz = np.ones((10,1))
+L16 = np.append(L16nsz,L16sz)
+L18nsz = np.zeros((18,1))
+L18sz = np.ones((18,1))
+L18 = np.append(L18nsz,L18sz)
+L21nsz = np.zeros((18,1))
+L21sz = np.ones((19,1))
+L21 = np.append(L21nsz,L21sz)
+L26nsz = np.zeros((20,1))
+L26sz = np.ones((20,1))
+L26_test = np.append(L26nsz,L26sz)
+
+# cocateno los de las etiquetas en un vector nx1
+Labels_Train = np.concatenate((L3,L4,L15,L16,L18,L21))
+Labels_Test = L26_test				# etiquetas de los datos de test
+
+Labels_Train.shape					# dimensiones de etiquetas de train
+
+Labels_Test.shape					# dimensiones de etiquetas de test
+
+from tensorflow.keras import backend	# backend de keras para no tener problemas
+from keras.utils import np_utils		# import  utils para llevar los datos de 
+										# formato one hot
+
+nclases = 2								# numero de clases
+label_train_c = np_utils.to_categorical(Labels_Train,nclases)	# etiquetas de label train 
+label_test_c = np_utils.to_categorical(Labels_Test,nclases)		# etiquetas de label test
+
+label_train_c.shape					# dimensiones de etiquetas de train en one hot
+
+label_test_c.shape					# dimensiones de etiquetas de test en one hot
+
+# defino mis datos de entrada 3d mas etiqutas 2d en one hot
+(x_train, y_train), (x_test, y_test) = ((Train,label_train_c),(Test,label_test_c))
+
+# dimensiones de test y train
+print(x_train.shape)
+print(x_test.shape)
+
+# defino la funcion plot
+def show_plot(x, y, y_pred=None):
+  fig, ax = plt.subplots(1,1, figsize=(15,5))
+  ax.plot(x, 'o-', c=colors(3), markersize=3.5)
+  ax.plot([m for m in range(x.shape[0],x.shape[0]+y.shape[0])], y, 'x-', c=colors(0), markersize=3.5, label='True Future')
+  if y_pred is not None:
+    ax.plot([m for m in range(x.shape[0],x.shape[0]+y.shape[0])], y_pred, 'o-', c=colors(2), markersize=3.5, label='Model prediction')
+  ax.legend()
+
+# defino defaultdic que es para almacenar los datos de metricas de diferentes redes
+from collections import defaultdict
+results = defaultdict(lambda: {})
+
+# Hiperparametros
+lote = 2				# Batch_size
+epocas = 20 			# Cantidad epocas a entrenar
+
+#
+
+# Create model with one LSTM layer with 64 units
+inp = Input(shape=x_train.shape[-2:])
+x = LSTM(64)(inp)
+x = Dense(2)(x)
+model = keras.Model(inputs=inp, outputs=x)
+
+# compile del modelo. parametros ( optimizer, loss )
+model.compile(optimizer=keras.optimizers.Adam(lr=1e-3),
+              loss=keras.losses.BinaryCrossentropy())
+			  
+# resumen del modelo
+model.summary()
+
+# ajuste de la red. parametros ( batch_size, epochs, verbose, validation_data)
+history = model.fit(x_train, y_train,
+          batch_size=lote,
+          epochs=epocas,
+          verbose=1,
+          validation_data=(x_test, y_test))
+
+# ploteo de la perdida en funcion de la funcion de costo
+plt.figure()
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.plot(history.history['loss'])
+plt.plot(history.history['val_loss'])
+plt.legend(['Training', 'Validation'])
+plt.show()
+
+#resumen de las direfentes arquitecuras y sus metricas
+predictions = model.predict(x_test)
+mae = mean_absolute_error(y_test, predictions)
+results['MAE']['SimpleLSTM'] = mae
+results['Y_PRED']['SimpleLSTM'] = predictions
+pd.DataFrame(results)['MAE']
+
+ 
